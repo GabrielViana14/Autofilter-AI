@@ -4,7 +4,6 @@ from dotenv import load_dotenv
 
 import google.generativeai as genai
 import google.generativeai.types as gap_types
-from google.generativeai.types import Schema, Type
 
 from fastapi import FastAPI, Depends, Security, HTTPException
 from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
@@ -31,28 +30,23 @@ else:
     genai.configure(api_key=api_key)
 
 # 1. Defina o SCHEMA do Gemini
-schema_definition = Schema(
-    type=Type.OBJECT,
-    properties={
-        'operationType': Schema(type=Type.STRING),
-        'price_min': Schema(type=Type.NUMBER),
-        'price_max': Schema(type=Type.NUMBER),
-        'brand': Schema(type=Type.STRING),
-        'model': Schema(type=Type.STRING),
-        'year': Schema(type=Type.NUMBER),
-        'color': Schema(type=Type.STRING),
-        'fuel_type': Schema(type=Type.STRING),
-        'transmission': Schema(type=Type.STRING),
-        'mileage_max': Schema(type=Type.NUMBER),
-        'estado': Schema(type=Type.STRING),
-        'municipio': Schema(type=Type.STRING),
-    }
-)
+schema_txt = """
+{
+  "operationType": "",
+  "brand": "",
+  "model": "",
+  "year": 0,
+  "color": "",
+  "fuel_type": "",
+  "transmission": "",
+  "estado": "",
+  "municipio": ""
+}
+"""
 
 # 2. Crie a configuração de geração para forçar a saída JSON
 generation_config = gap_types.GenerationConfig(
     response_mime_type="application/json",
-    response_schema=schema_definition
 )
 
 # 3. Inicialize o modelo
@@ -78,22 +72,50 @@ async def gerar_filtro_gemini_async(texto_usuario: str):
     3. Mapeie os valores de transmissão: "automático" -> "automático", "manual" -> "manual".
     4. Se um valor não for mencionado no pedido, omita-o do JSON.
 
+    SCHEMA PERMITIDO:
+    {schema_txt}
+
     Pedido do usuário:
     "{texto_usuario}"
     """
     
     try:
         # IMPORTANTE: Use .generate_content_async para não bloquear o servidor
-        response = await model.generate_content_async(
-            prompt,
-            generation_config=generation_config
-        )
+        response = await model.generate_content_async(prompt)
         json_str = response.text.strip()
+        start_index = json_str.find('{')
+        end_index = json_str.rfind('}')
+        # Se encontrou um JSON válido (com início e fim)
+        if start_index != -1 and end_index != -1 and end_index > start_index:
+            json_str = json_str[start_index:end_index+1]
+        else:
+            # Se não encontrou, a string é lixo, falha intencional
+            print(f"Erro: Não foi possível extrair um objeto JSON da resposta: {json_str}")
+            # Retorna vazio, pois o JSON.loads() falharia de qualquer forma
+            return {}
+        
+        # O .strip() final é bom caso haja espaços em branco
+        json_str = json_str.strip()
+
+        if not json_str:
+            print("Erro: A API retornou uma string vazia.")
+            return {}
+        
         filtro = json.loads(json_str)
         return filtro, None # Retorna (dados, erro)
+    except json.JSONDecodeError:
+        print(f"Erro: Falha ao decodificar o JSON. Resposta: {json_str}")
+        return {}
     except Exception as e:
-        print(f"Erro ao chamar a API Gemini: {e}")
-        return None, str(e)
+        # Captura outros erros (ex: API, validação, feedback do prompt)
+        print(f"Erro inesperado na API: {e}")
+        # Se a API recusar o prompt, 'response' pode não ter 'text'
+        # e pode ter 'prompt_feedback' com o motivo.
+        if 'response' in locals() and hasattr(response, 'text'):
+             print(f"Resposta recebida: {response.text}")
+        else:
+             print("Resposta da API não foi recebida com sucesso.")
+        return {}
 
 # --- Rotas da Aplicação ---
 
