@@ -9,7 +9,6 @@ from fastapi import FastAPI, Depends, Security, HTTPException
 from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
 from models.carro_model import CarroModel
 from models.texto_entrada_model import TextoEntradaModel
-from models.texto_saida_model import TextoSaidaModel
 from typing import List, Dict, Any, Optional
 import httpx
 
